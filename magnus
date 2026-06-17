@@ -40,7 +40,8 @@ __VERSION__ = "1.0.4"
 
 class Main(object):
     def __init__(self):
-        self.zoomlevel = 2
+        self.zoomlevel = 2.0
+        self.zoomlevel_from_commandline = False
         self.app = Gtk.Application.new(
             "org.kryogenix.magnus",
             Gio.ApplicationFlags.HANDLES_COMMAND_LINE |
@@ -88,6 +89,8 @@ class Main(object):
             print("    Show about dialogue")
             print("  --refresh-interval=50")
             print("    Set refresh interval in milliseconds (lower is faster)")
+            print("  --zoomlevel=1.5")
+            print("    Set zoom level")
             print("  --draw-pointer")
             print("    Draw the real pointer position in the magnified image")
             print("  --no-draw-pointer")
@@ -116,6 +119,15 @@ class Main(object):
                         rival = int(parts[1])
                         print("Refresh interval set to {}ms".format(rival))
                         self.refresh_interval = rival
+                    except ValueError:
+                        pass
+            if arg.startswith("--zoomlevel="):
+                parts = arg.split("=")
+                if len(parts) == 2:
+                    try:
+                        self.zoomlevel = float(parts[1])
+                        self.zoomlevel_from_commandline = True
+                        print("Zoom level set to {}".format(self.zoomlevel))
                     except ValueError:
                         pass
             if arg.startswith("--to-display="):
@@ -165,9 +177,9 @@ class Main(object):
         # the zoom chooser
         zoom = Gtk.ComboBoxText.new()
         self.zoom = zoom
-        for i in range(2, 6):
-            zoom.append(str(i), "{}×".format(i))
-        zoom.set_active(max(0, min(3, self.zoomlevel - 2)))
+        for value in self.zoom_values():
+            zoom.append(str(value), "{}×".format(value))
+        zoom.set_active(self.zoom_index_for_value(self.zoomlevel))
         zoom.connect("changed", self.set_zoom)
 
         # the box that contains everything
@@ -235,7 +247,22 @@ class Main(object):
             print("Could not open capture display {}".format(
                 self.capture_display_name), file=sys.stderr)
             sys.exit(1)
-        self.zoomlevel = 3
+        if not self.zoomlevel_from_commandline:
+            self.zoomlevel = 1.5
+
+    def zoom_values(self):
+        return [1.5, 2, 2.5, 3, 4, 5]
+
+    def zoom_index_for_value(self, value):
+        values = self.zoom_values()
+        best_index = 0
+        best_delta = abs(values[0] - value)
+        for index, zoom_value in enumerate(values):
+            delta = abs(zoom_value - value)
+            if delta < best_delta:
+                best_index = index
+                best_delta = delta
+        return best_index
 
     def zoom_out(self, keypress, zoom):
         current_index = zoom.get_active()
@@ -258,7 +285,7 @@ class Main(object):
         self.decorations_height = alloc.height - sz.height
 
     def set_zoom(self, zoom):
-        self.zoomlevel = int(zoom.get_active_text()[0])
+        self.zoomlevel = float(zoom.get_active_id())
         self.poll(force_refresh=True)
         self.serialise()
 
@@ -332,11 +359,11 @@ class Main(object):
         if self.separate_capture_display:
             capture_screen_width = screen.get_width()
             capture_screen_height = screen.get_height()
-            scaled_width = capture_screen_width // self.zoomlevel
-            scaled_height = capture_screen_height // self.zoomlevel
+            scaled_width = int(capture_screen_width / self.zoomlevel)
+            scaled_height = int(capture_screen_height / self.zoomlevel)
         else:
-            scaled_width = self.width // self.zoomlevel
-            scaled_height = self.height // self.zoomlevel
+            scaled_width = int(self.width / self.zoomlevel)
+            scaled_height = int(self.height / self.zoomlevel)
         scaled_xoff = scaled_width // 2
         scaled_yoff = scaled_height // 2
         capture_x = x - scaled_xoff
@@ -478,14 +505,12 @@ class Main(object):
                    " (error: %s), so assuming blank") % (e,))
             data = {}
         zl = data.get("zoom")
-        if zl:
-            idx = 0
-            for row in self.zoom.get_model():
-                text, lid = list(row)
-                if lid == str(zl):
-                    self.zoom.set_active(idx)
-                    self.zoomlevel = zl
-                idx += 1
+        if zl and not self.zoomlevel_from_commandline:
+            try:
+                self.zoomlevel = float(zl)
+                self.zoom.set_active(self.zoom_index_for_value(self.zoomlevel))
+            except ValueError:
+                pass
         metrics = data.get("metrics")
         if self.use_default_target_geometry:
             self.set_default_target_geometry()
