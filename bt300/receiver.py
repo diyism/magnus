@@ -56,7 +56,8 @@ def main():
     parser.add_argument("--y-axis", choices=["gx", "gy", "gz"],
                         default="gx",
                         help="incoming gyro axis used for vertical movement")
-    parser.add_argument("--invert-x", action="store_true")
+    parser.add_argument("--invert-x", action="store_true", default=True)
+    parser.add_argument("--no-invert-x", action="store_false", dest="invert_x")
     parser.add_argument("--invert-y", action="store_true", default=True)
     parser.add_argument("--no-invert-y", action="store_false", dest="invert_y")
     parser.add_argument("--yaw-gain", type=float, default=120.0,

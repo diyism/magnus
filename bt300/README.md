@@ -52,7 +52,7 @@ For the tested BT-300 axis mapping:
 - head up: `gx > +0.05`
 - head down: `gx < -0.05`
 
-The receiver therefore defaults to `--x-axis gy --y-axis gx --invert-y`,
+The receiver therefore defaults to `--x-axis gy --y-axis gx --invert-x --invert-y`,
 with `--x-deadzone 0.10` and `--y-deadzone 0.05`.
 
 Useful receiver options:
@@ -60,6 +60,7 @@ Useful receiver options:
 ```bash
 DISPLAY=:0 ./receiver.py --yaw-gain 120 --pitch-gain 120
 DISPLAY=:0 ./receiver.py --x-deadzone 0.12 --y-deadzone 0.06
+DISPLAY=:0 ./receiver.py --no-invert-x
 DISPLAY=:0 ./receiver.py --no-invert-y
 DISPLAY=:0 ./receiver.py --deadzone 0.05
 DISPLAY=:0 ./receiver.py --mode scroll --scroll-threshold 8

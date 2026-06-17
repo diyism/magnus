@@ -12,6 +12,9 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.view.Gravity;
 import android.view.View;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -50,6 +53,7 @@ public class MainActivity extends Activity implements SensorEventListener {
     private TextView status;
     private TextView poseView;
     private Button startButton;
+    private WebView webView;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -63,7 +67,7 @@ public class MainActivity extends Activity implements SensorEventListener {
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(24, 24, 24, 24);
+        root.setPadding(12, 12, 12, 12);
         root.setGravity(Gravity.CENTER_HORIZONTAL);
 
         status = new TextView(this);
@@ -102,6 +106,16 @@ public class MainActivity extends Activity implements SensorEventListener {
         poseView.setText("gyro gx 0.000  gy 0.000  gz 0.000 rad/s");
         root.addView(poseView, fillWrap());
 
+        webView = new WebView(this);
+        webView.setWebViewClient(new WebViewClient());
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setUseWideViewPort(true);
+        root.addView(webView, fillWeight());
+        loadKasmVnc(hostEdit.getText().toString().trim());
+
         setContentView(root);
     }
 
@@ -109,6 +123,18 @@ public class MainActivity extends Activity implements SensorEventListener {
         return new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT);
+    }
+
+    private LinearLayout.LayoutParams fillWeight() {
+        return new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f);
+    }
+
+    private void loadKasmVnc(String host) {
+        if (host == null || host.length() == 0 || webView == null) {
+            return;
+        }
+        webView.loadUrl("http://" + host + ":8445");
     }
 
     private void startSending() {
@@ -123,6 +149,7 @@ public class MainActivity extends Activity implements SensorEventListener {
                     .putString("host", host)
                     .putInt("port", port)
                     .apply();
+            loadKasmVnc(host);
             targetAddress = InetAddress.getByName(host);
             targetPort = port;
             socket = new DatagramSocket();
@@ -160,6 +187,15 @@ public class MainActivity extends Activity implements SensorEventListener {
     protected void onPause() {
         super.onPause();
         stopSending();
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (webView != null && webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
     }
 
     @Override

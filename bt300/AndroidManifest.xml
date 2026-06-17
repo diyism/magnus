@@ -9,6 +9,7 @@
     <application
         android:allowBackup="false"
         android:label="BT300 Head Mouse"
+        android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
         <activity
             android:name=".MainActivity"
