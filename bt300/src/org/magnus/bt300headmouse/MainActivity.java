@@ -2,17 +2,14 @@ package org.magnus.bt300headmouse;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.hardware.Sensor;
-import android.hardware.SensorEvent;
-import android.hardware.SensorEventListener;
-import android.hardware.SensorManager;
+import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -20,46 +17,25 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.nio.charset.Charset;
-import java.util.Locale;
-
-public class MainActivity extends Activity implements SensorEventListener {
-    private static final Charset UTF8 = Charset.forName("UTF-8");
+public class MainActivity extends Activity {
     private static final String PREFS = "bt300-headmouse";
     private static final String DEFAULT_HOST = "192.168.15.102";
     private static final int DEFAULT_PORT = 39500;
-    private static final long SEND_INTERVAL_NS = 20000000L;
 
-    private SensorManager sensorManager;
-    private Sensor sensor;
-    private HandlerThread senderThread;
-    private Handler sender;
-    private DatagramSocket socket;
-    private InetAddress targetAddress;
-    private int targetPort = DEFAULT_PORT;
     private boolean running = false;
-    private long lastSendNs = 0;
-    private long sequence = 0;
-    private long sentCount = 0;
-    private float lastGx = 0;
-    private float lastGy = 0;
-    private float lastGz = 0;
 
     private EditText hostEdit;
     private EditText portEdit;
     private TextView status;
     private TextView poseView;
     private Button startButton;
+    private BroadcastReceiver statusReceiver;
 
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        sensor = sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE);
         buildUi();
+        registerStatusReceiver();
     }
 
     private void buildUi() {
@@ -71,7 +47,7 @@ public class MainActivity extends Activity implements SensorEventListener {
 
         status = new TextView(this);
         status.setTextSize(18);
-        status.setText(sensor == null ? "No gyroscope sensor" : "Ready: " + sensor.getName());
+        status.setText("Ready");
         root.addView(status, fillWrap());
 
         Button topOpenButton = new Button(this);
@@ -153,10 +129,6 @@ public class MainActivity extends Activity implements SensorEventListener {
         if (running) {
             return;
         }
-        if (sensor == null) {
-            status.setText("No usable gyroscope sensor");
-            return;
-        }
         try {
             String host = hostEdit.getText().toString().trim();
             int port = Integer.parseInt(portEdit.getText().toString().trim());
@@ -164,37 +136,27 @@ public class MainActivity extends Activity implements SensorEventListener {
                     .putString("host", host)
                     .putInt("port", port)
                     .apply();
-            targetAddress = InetAddress.getByName(host);
-            targetPort = port;
-            socket = new DatagramSocket();
-            senderThread = new HandlerThread("udp-sender");
-            senderThread.start();
-            sender = new Handler(senderThread.getLooper());
-            running = true;
-            sequence = 0;
-            sentCount = 0;
-            sensorManager.registerListener(this, sensor, SensorManager.SENSOR_DELAY_GAME);
-            startButton.setText("Stop");
-            status.setText("Sending to " + host + ":" + port);
+            Intent intent = new Intent(this, HeadMouseService.class);
+            intent.setAction(HeadMouseService.ACTION_START);
+            intent.putExtra(HeadMouseService.EXTRA_HOST, host);
+            intent.putExtra(HeadMouseService.EXTRA_PORT, port);
+            if (Build.VERSION.SDK_INT >= 26) {
+                startForegroundService(intent);
+            } else {
+                startService(intent);
+            }
+            setRunningUi(true, "Starting service...");
         } catch (Exception e) {
             status.setText("Start failed: " + e.getMessage());
-            stopSending();
+            setRunningUi(false, "Stopped");
         }
     }
 
     private void stopSending() {
-        running = false;
-        sensorManager.unregisterListener(this);
-        if (senderThread != null) {
-            senderThread.quitSafely();
-            senderThread = null;
-        }
-        if (socket != null) {
-            socket.close();
-            socket = null;
-        }
-        startButton.setText("Start");
-        status.setText(sensor == null ? "No gyroscope sensor" : "Stopped");
+        Intent intent = new Intent(this, HeadMouseService.class);
+        intent.setAction(HeadMouseService.ACTION_STOP);
+        startService(intent);
+        setRunningUi(false, "Stopped");
     }
 
     @Override
@@ -205,7 +167,10 @@ public class MainActivity extends Activity implements SensorEventListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        stopSending();
+        if (statusReceiver != null) {
+            unregisterReceiver(statusReceiver);
+            statusReceiver = null;
+        }
     }
 
     @Override
@@ -213,70 +178,27 @@ public class MainActivity extends Activity implements SensorEventListener {
         super.onBackPressed();
     }
 
-    @Override
-    public void onSensorChanged(SensorEvent event) {
-        if (!running || event.sensor.getType() != sensor.getType()) {
-            return;
-        }
-        if (event.timestamp - lastSendNs < SEND_INTERVAL_NS) {
-            return;
-        }
-        lastSendNs = event.timestamp;
-
-        lastGx = event.values[0];
-        lastGy = event.values[1];
-        lastGz = event.values[2];
-
-        final float gx = lastGx;
-        final float gy = lastGy;
-        final float gz = lastGz;
-        final long seq = sequence++;
-
-        poseView.setText(String.format(Locale.US,
-                "gyro gx %.3f  gy %.3f  gz %.3f rad/s  sent %d",
-                gx, gy, gz, sentCount));
-        sendGyro(seq, gx, gy, gz);
-    }
-
-    private void sendGyro(final long seq, final float gx, final float gy, final float gz) {
-        if (sender == null || socket == null || targetAddress == null) {
-            return;
-        }
-        sender.post(new Runnable() {
+    private void registerStatusReceiver() {
+        statusReceiver = new BroadcastReceiver() {
             @Override
-            public void run() {
-                try {
-                    String payload = String.format(Locale.US,
-                            "{\"seq\":%d,\"gx\":%.6f,\"gy\":%.6f,\"gz\":%.6f}",
-                            seq, gx, gy, gz);
-                    byte[] bytes = payload.getBytes(UTF8);
-                    DatagramPacket packet = new DatagramPacket(
-                            bytes, bytes.length, targetAddress, targetPort);
-                    socket.send(packet);
-                    sentCount++;
-                    if (seq % 20 == 0) {
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                status.setText("Sending to "
-                                        + targetAddress.getHostAddress() + ":"
-                                        + targetPort + " sent " + sentCount);
-                            }
-                        });
-                    }
-                } catch (final Exception e) {
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            status.setText("Send failed: " + e.getMessage());
-                        }
-                    });
+            public void onReceive(Context context, Intent intent) {
+                boolean isRunning = intent.getBooleanExtra(
+                        HeadMouseService.EXTRA_RUNNING, false);
+                String text = intent.getStringExtra(HeadMouseService.EXTRA_STATUS);
+                String pose = intent.getStringExtra(HeadMouseService.EXTRA_POSE);
+                setRunningUi(isRunning, text == null ? "" : text);
+                if (pose != null && pose.length() > 0) {
+                    poseView.setText(pose);
                 }
             }
-        });
+        };
+        IntentFilter filter = new IntentFilter(HeadMouseService.ACTION_STATUS);
+        registerReceiver(statusReceiver, filter);
     }
 
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+    private void setRunningUi(boolean isRunning, String text) {
+        running = isRunning;
+        startButton.setText(running ? "Stop" : "Start");
+        status.setText(text);
     }
 }
