@@ -12,6 +12,8 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.view.Gravity;
 import android.view.View;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -101,22 +103,56 @@ public class MainActivity extends Activity implements SensorEventListener {
         });
         root.addView(startButton, fillWrap());
 
+        Button openButton = new Button(this);
+        openButton.setText("Open KasmVNC");
+        openButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                loadKasmVnc(hostEdit.getText().toString().trim());
+            }
+        });
+        root.addView(openButton, fillWrap());
+
         poseView = new TextView(this);
         poseView.setTextSize(16);
         poseView.setText("gyro gx 0.000  gy 0.000  gz 0.000 rad/s");
         root.addView(poseView, fillWrap());
 
         webView = new WebView(this);
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                status.setText("Loading " + url);
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                status.setText("Loaded " + url);
+            }
+
+            @Override
+            public void onReceivedError(WebView view, int errorCode,
+                                        String description, String failingUrl) {
+                status.setText("WebView error " + errorCode + ": " + description);
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request,
+                                        WebResourceError error) {
+                status.setText("WebView error: " + error.getDescription());
+            }
+        });
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setLoadWithOverviewMode(true);
         settings.setUseWideViewPort(true);
+        settings.setBuiltInZoomControls(true);
+        settings.setDisplayZoomControls(false);
         root.addView(webView, fillWeight());
-        loadKasmVnc(hostEdit.getText().toString().trim());
 
         setContentView(root);
+        loadKasmVnc(hostEdit.getText().toString().trim());
     }
 
     private LinearLayout.LayoutParams fillWrap() {
@@ -134,7 +170,10 @@ public class MainActivity extends Activity implements SensorEventListener {
         if (host == null || host.length() == 0 || webView == null) {
             return;
         }
-        webView.loadUrl("http://" + host + ":8445");
+        String url = "http://" + host + ":8445";
+        status.setText("Opening " + url);
+        webView.setVisibility(View.VISIBLE);
+        webView.loadUrl(url);
     }
 
     private void startSending() {
