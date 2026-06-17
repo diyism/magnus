@@ -1,3 +1,7 @@
+    ./kasm.sh
+    ./kasm_resize.sh
+    ./magnus --to-display=:2 --zoomlevel=3
+
 <h1 align="center">
   <img src="data/logo.png" alt="Magnus">
   <br />
